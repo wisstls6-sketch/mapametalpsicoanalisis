@@ -119,6 +119,45 @@ const zoom = d3.zoom()
 
 svg.call(zoom);
 
+// Los límites se calculan después de dibujar el mapa.
+// Esto evita que el usuario pueda arrastrarlo indefinidamente
+// hasta perderlo por completo fuera de la pantalla.
+let mapBounds = null;
+let fitScale = 1;
+const navigationPadding = 260;
+
+function updateNavigationLimits() {
+    mapBounds = scene.node().getBBox();
+
+    const viewportWidth = Math.max(1, window.innerWidth);
+    const viewportHeight = Math.max(1, window.innerHeight);
+
+    fitScale = Math.min(
+        1,
+        .94 / Math.max(
+            mapBounds.width / viewportWidth,
+            mapBounds.height / viewportHeight
+        )
+    );
+
+    // Se permite alejar ligeramente respecto al ajuste inicial,
+    // pero nunca tanto como para convertir el mapa en un punto.
+    const minimumScale = Math.max(0.16, fitScale * 0.72);
+
+    zoom
+        .scaleExtent([minimumScale, 3.2])
+        .extent([[0, 0], [viewportWidth, viewportHeight]])
+        .translateExtent([
+            [mapBounds.x - navigationPadding, mapBounds.y - navigationPadding],
+            [
+                mapBounds.x + mapBounds.width + navigationPadding,
+                mapBounds.y + mapBounds.height + navigationPadding
+            ]
+        ]);
+
+    svg.call(zoom);
+}
+
 const center = { x: 0, y: 0, w: 460, h: 230 };
 const branchSize = { w: 310, h: 98 };
 const leafSize = { w: 285, h: 90 };
@@ -334,13 +373,21 @@ drawCenter();
 branches.forEach(drawBranch);
 
 function fit() {
-    const box = scene.node().getBBox();
-    const w = window.innerWidth, h = window.innerHeight;
-    const scale = Math.min(.94 / Math.max(box.width / w, box.height / h), 1);
+    updateNavigationLimits();
+
+    const box = mapBounds;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const scale = fitScale;
+
     const tx = (w - box.width * scale) / 2 - box.x * scale;
     const ty = (h - box.height * scale) / 2 - box.y * scale;
+
     svg.transition().duration(700)
-        .call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+        .call(
+            zoom.transform,
+            d3.zoomIdentity.translate(tx, ty).scale(scale)
+        );
 }
 
 function downloadBlob(blob, filename) {
@@ -469,4 +516,9 @@ async function exportFullMap() {
 
 document.getElementById("downloadButton").addEventListener("click", exportFullMap);
 requestAnimationFrame(fit);
-window.addEventListener("resize", () => setTimeout(fit, 120));
+
+let resizeTimer;
+window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(fit, 160);
+});
